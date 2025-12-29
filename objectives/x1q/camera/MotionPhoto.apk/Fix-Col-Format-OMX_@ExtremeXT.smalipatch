@@ -1,0 +1,11 @@
+FILE smali/com/samsung/android/sum/core/filter/EncoderFilter.smali
+PATCH 
+     invoke-virtual {v3, v5, v4}, Landroid/media/MediaFormat;->setInteger(Ljava/lang/String;I)V 
+     :cond_14
+-    const v4, 0x7f420888
++    const v4, 0x7f000789
+ 
+     invoke-static {v4}, Ljava/lang/Integer;->valueOf(I)Ljava/lang/Integer;
+END
+
+END
