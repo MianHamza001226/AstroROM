@@ -33,8 +33,8 @@ jobs:
           cd samloader
           pip3 install .
           samloader download \
-            --model SM-G986U \
-            --region XAA \
+            --model SM-G981N \
+            --region KOO \
             --firmware latest \
             --output ../firmware/x1q
 
