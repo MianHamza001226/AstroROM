@@ -2,56 +2,55 @@ name: Build AstroROM for x1q
 
 on:
   workflow_dispatch:
-  push:
-    branches: [ main ]
 
 jobs:
   build-x1q:
     runs-on: ubuntu-22.04
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Install dependencies
         run: |
           sudo apt update
           sudo apt install -y \
             git wget curl unzip \
-            lz4 tar python3 \
+            lz4 tar python3 python3-pip \
             android-sdk-libsparse-utils \
             simg2img e2fsprogs \
             squashfs-tools \
             bc cpio rsync
 
-      - name: Setup firmware directory
-        run: |
-          mkdir -p firmware/x1q
+      - name: Enable loop device
+        run: sudo modprobe loop
 
-      - name: Download Samsung firmware (DM3)
+      - name: Setup firmware directory
+        run: mkdir -p firmware/x1q
+
+      - name: Download Samsung firmware (x1q)
         run: |
           git clone https://github.com/nlscc/samloader.git
           cd samloader
           pip3 install .
           samloader download \
-            --model SM-S918B \
-            --region XME \
-            --firmware S918BXXS8DYG5  \
+            --model SM-G986U \
+            --region XAA \
+            --firmware latest \
             --output ../firmware/x1q
 
       - name: Extract firmware
         run: |
           cd firmware/x1q
-          for f in *.zip; do unzip "$f"; done
+          unzip "*.zip"
+
+      - name: Clean build markers
+        run: rm -f workspace/.build_markers || true
 
       - name: Build ROM
-        run: |
-          sudo bash build.sh -b x1q
+        run: sudo bash build.sh -b x1q
 
-      - name: Upload ROM output
+      - name: Upload ROM
         uses: actions/upload-artifact@v4
         with:
           name: AstroROM-x1q
-          path: |
-            out/
-            workspace/
+          path: out/*.zip
