@@ -44,7 +44,7 @@ jobs:
       - name: Prepare firmware directory
         run: mkdir -p firmware/x1q
 
-      # -----------------------------
+       # -----------------------------
       # Install patched samloader
       # -----------------------------
       - name: Install samloader (patched)
@@ -57,12 +57,8 @@ jobs:
       # -----------------------------
       - name: Download firmware (SCG01 KDI)
         run: |
-          samloader \
-            -m SCG01 \
-            -r KDI \
-            download \
-            -v SCG01KDS1DXB1 \
-            -O firmware/x1q || { echo "Firmware download failed"; exit 1; }
+          samloader -m SCG01 -r KDI download -v SCG01KDS1DXB1 -O firmware/x1q \
+            || { echo "Firmware download failed"; exit 1; }
 
       # -----------------------------
       # Extract AP contents
