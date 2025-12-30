@@ -35,7 +35,7 @@ jobs:
           samloader download \
             --model SM-G981N \
             --region KOO \
-            --firmware latest \
+            --firmware  G981NKSS8IYC2\
             --output ../firmware/x1q
 
       - name: Extract firmware
