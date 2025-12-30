@@ -28,15 +28,15 @@ jobs:
         run: |
           mkdir -p firmware/x1q
 
-      - name: Download Samsung firmware (x1q)
+      - name: Download Samsung firmware (DM3)
         run: |
           git clone https://github.com/nlscc/samloader.git
           cd samloader
           pip3 install .
           samloader download \
-            --model SM-G986U \
-            --region XAA \
-            --firmware latest \
+            --model SM-S918B \
+            --region XME \
+            --firmware S918BXXS8DYG5  \
             --output ../firmware/x1q
 
       - name: Extract firmware
