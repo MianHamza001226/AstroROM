@@ -10,9 +10,15 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
+      # -----------------------------
+      # Checkout repo
+      # -----------------------------
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # -----------------------------
+      # Install dependencies
+      # -----------------------------
       - name: Install dependencies
         run: |
           sudo apt update
@@ -25,47 +31,61 @@ jobs:
             android-sdk-libsparse-utils
 
       # -----------------------------
-      # Firmware setup (SCG01 / KDI)
+      # Prepare firmware directory
       # -----------------------------
       - name: Prepare firmware directory
-        run: |
-          mkdir -p firmware/x1q
+        run: mkdir -p firmware/x1q
 
+      # -----------------------------
+      # Install samloader
+      # -----------------------------
       - name: Install samloader
         run: |
           git clone https://github.com/nlscc/samloader.git
           cd samloader
-          pip3 install .
+          sudo pip3 install .
 
-      - name: Resolve latest firmware version (SCG01 KDI)
-        id: fw
+      # -----------------------------
+      # Download SCG01KDS1DXB1 firmware
+      # -----------------------------
+      - name: Download firmware (SCG01 KDI)
         run: |
-          FW_VER=$(samloader checkupdate -m SCG01 -r KDI \
-            | grep -i "Latest firmware version" \
-            | cut -d':' -f2 \
-            | tr -d ' ')
-
-          if [ -z "$FW_VER" ]; then
-            echo "Firmware version detection failed"
-            exit 1
-          fi
-
-          echo "fw_ver=$FW_VER" >> $GITHUB_OUTPUT
-          echo "Using firmware: $FW_VER"
-
-      - name: Download firmware
-        run: |
-          samloader download \
+          samloader \
             -m SCG01 \
             -r KDI \
-            -v "${{ steps.fw.outputs.fw_ver }}" \
+            download \
+            -v SCG01KDS1DXB1 \
             -O firmware/x1q
 
+      # -----------------------------
+      # Extract AP contents
+      # -----------------------------
       - name: Extract firmware
         run: |
           cd firmware/x1q
+          unzip -q "*.zip"
+          if ls AP_*.tar.md5 1>/dev/null 2>&1; then
+            tar -xf AP_*.tar.md5
+          else
+            echo "AP archive missing"
+            exit 1
+          fi
 
-          # unzip firmware package
-          for z in *.zip; do
-            unzip -q "$z"
-          done
+      # -----------------------------
+      # Build AstroROM
+      # -----------------------------
+      - name: Build AstroROM (x1q)
+        run: |
+          chmod +x build.sh
+          sudo ./build.sh -b x1q
+
+      # -----------------------------
+      # Upload output artifacts
+      # -----------------------------
+      - name: Upload ROM output
+        uses: actions/upload-artifact@v4
+        with:
+          name: AstroROM-x1q-SCG01
+          path: |
+            out/
+            workspace/
