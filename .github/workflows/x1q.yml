@@ -1,56 +1,71 @@
-name: Build AstroROM for x1q
+name: Build AstroROM for x1q (SCG01)
 
 on:
   workflow_dispatch:
+  push:
+    branches: [ main ]
 
 jobs:
   build-x1q:
     runs-on: ubuntu-22.04
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
       - name: Install dependencies
         run: |
           sudo apt update
           sudo apt install -y \
-            git wget curl unzip \
-            lz4 tar python3 python3-pip \
-            android-sdk-libsparse-utils \
+            git wget curl unzip tar lz4 \
+            python3 python3-pip \
             simg2img e2fsprogs \
             squashfs-tools \
-            bc cpio rsync
+            bc cpio rsync \
+            android-sdk-libsparse-utils
 
-      - name: Enable loop device
-        run: sudo modprobe loop
+      # -----------------------------
+      # Firmware setup (SCG01 / KDI)
+      # -----------------------------
+      - name: Prepare firmware directory
+        run: |
+          mkdir -p firmware/x1q
 
-      - name: Setup firmware directory
-        run: mkdir -p firmware/x1q
-
-      - name: Download Samsung firmware (x1q)
+      - name: Install samloader
         run: |
           git clone https://github.com/nlscc/samloader.git
           cd samloader
           pip3 install .
+
+      - name: Resolve latest firmware version (SCG01 KDI)
+        id: fw
+        run: |
+          FW_VER=$(samloader checkupdate -m SCG01 -r KDI \
+            | grep -i "Latest firmware version" \
+            | cut -d':' -f2 \
+            | tr -d ' ')
+
+          if [ -z "$FW_VER" ]; then
+            echo "Firmware version detection failed"
+            exit 1
+          fi
+
+          echo "fw_ver=$FW_VER" >> $GITHUB_OUTPUT
+          echo "Using firmware: $FW_VER"
+
+      - name: Download firmware
+        run: |
           samloader download \
-            --model SM-G981N \
-            --region KOO \
-            --firmware  G981NKSS8IYC2\
-            --output ../firmware/x1q
+            -m SCG01 \
+            -r KDI \
+            -v "${{ steps.fw.outputs.fw_ver }}" \
+            -O firmware/x1q
 
       - name: Extract firmware
         run: |
           cd firmware/x1q
-          unzip "*.zip"
 
-      - name: Clean build markers
-        run: rm -f workspace/.build_markers || true
-
-      - name: Build ROM
-        run: sudo bash build.sh -b x1q
-
-      - name: Upload ROM
-        uses: actions/upload-artifact@v4
-        with:
-          name: AstroROM-x1q
-          path: out/*.zip
+          # unzip firmware package
+          for z in *.zip; do
+            unzip -q "$z"
+          done
