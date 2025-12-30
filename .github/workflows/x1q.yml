@@ -28,7 +28,15 @@ jobs:
             simg2img e2fsprogs \
             squashfs-tools \
             bc cpio rsync \
-            android-sdk-libsparse-utils
+            android-sdk-libsparse-utils \
+            dos2unix
+
+      # -----------------------------
+      # Convert line endings (Windows fix)
+      # -----------------------------
+      - name: Convert line endings
+        run: |
+          find . -type f -name "*.sh" -exec dos2unix {} +
 
       # -----------------------------
       # Prepare firmware directory
@@ -37,13 +45,12 @@ jobs:
         run: mkdir -p firmware/x1q
 
       # -----------------------------
-      # Install samloader
+      # Install patched samloader
       # -----------------------------
-      - name: Install samloader
+      - name: Install samloader (patched)
         run: |
-          git clone https://github.com/nlscc/samloader.git
-          cd samloader
-          sudo pip3 install .
+          pip uninstall -y samloader || true
+          pip install git+https://github.com/nlscc/samloader.git
 
       # -----------------------------
       # Download SCG01KDS1DXB1 firmware
@@ -55,7 +62,7 @@ jobs:
             -r KDI \
             download \
             -v SCG01KDS1DXB1 \
-            -O firmware/x1q
+            -O firmware/x1q || { echo "Firmware download failed"; exit 1; }
 
       # -----------------------------
       # Extract AP contents
@@ -63,7 +70,7 @@ jobs:
       - name: Extract firmware
         run: |
           cd firmware/x1q
-          unzip -q "*.zip"
+          unzip -q "*.zip" || { echo "No ZIP found"; exit 1; }
           if ls AP_*.tar.md5 1>/dev/null 2>&1; then
             tar -xf AP_*.tar.md5
           else
@@ -77,7 +84,7 @@ jobs:
       - name: Build AstroROM (x1q)
         run: |
           chmod +x build.sh
-          sudo ./build.sh -b x1q
+          sudo bash build.sh --build x1q
 
       # -----------------------------
       # Upload output artifacts
