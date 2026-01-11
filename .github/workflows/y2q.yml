@@ -1,0 +1,274 @@
+name: Build AstroROM
+
+on:
+  workflow_dispatch: 
+    inputs:
+      device: 
+        description: 'Device Codename (e.g., dm3q, y2q)'
+        required: true
+        default: 'y2q'
+        type: string
+      upload_cloud:
+        description: 'Upload ROM to cloud (PixelDrain)'
+        required: false
+        default:  false
+        type: boolean
+      build_type:
+        description: 'Build Type'
+        required: false
+        default: 'userdebug'
+        type:  choice
+        options:
+          - user
+          - userdebug
+          - eng
+
+env:
+  DEVICE: ${{ inputs.device }}
+  BUILD_TYPE: ${{ inputs.build_type }}
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 480
+
+    steps:
+      - name: Checkout Repository
+        uses:  actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      # ===============================================
+      # DISK SPACE OPTIMIZATION
+      # ===============================================
+      
+      - name: Free Disk Space (Step 1/4) - Remove System Packages
+        run: |
+          echo "=== Before Cleanup ==="
+          df -h /
+          echo ""
+          echo "Removing unnecessary packages..."
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          sudo rm -rf /usr/local/share/boost
+          sudo rm -rf /usr/share/swift
+          sudo rm -rf /usr/local/lib/node_modules
+          sudo rm -rf /usr/local/share/chromium
+          sudo rm -rf /usr/share/sbt
+          sudo docker image prune --all --force
+          sudo docker builder prune -af
+
+      - name: Free Disk Space (Step 2/4) - Tool Cache Cleanup
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache:  true
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          swap-storage:  false
+
+      - name: Free Disk Space (Step 3/4) - SlimHub Actions
+        uses: rokibhasansagar/slimhub_actions@main
+        with:
+          retain: 'compiler_cmake'
+
+      - name:  Free Disk Space (Step 4/4) - Final Cleanup
+        run: |
+          sudo apt-get autoremove -y
+          sudo apt-get autoclean -y
+          sudo apt-get clean
+          echo ""
+          echo "=== After Cleanup ==="
+          df -h /
+
+      # ===============================================
+      # BUILD PROCESS
+      # ===============================================
+
+      - name: Display Build Information
+        run: |
+          echo "╔══════════════════════════════════════╗"
+          echo "║       AstroROM Build Starting        ║"
+          echo "╚═════════════════════════════════��════╝"
+          echo ""
+          echo "Device:       ${{ env.DEVICE }}"
+          echo "Build Type:  ${{ env.BUILD_TYPE }}"
+          echo "Upload:       ${{ inputs.upload_cloud }}"
+          echo "Runner:      ubuntu-24.04"
+          echo "Triggered by: @${{ github.actor }}"
+          echo ""
+          echo "=== System Information ==="
+          uname -a
+          echo ""
+          echo "=== Available Disk Space ==="
+          df -h /
+          echo ""
+          echo "=== CPU Information ==="
+          lscpu | grep -E "^CPU\(s\)|Model name|Thread|Core"
+
+      - name: Build AstroROM
+        id: build
+        run: |
+          echo "Starting build process..."
+          sudo bash build.sh --build ${{ env.DEVICE }}
+          
+          echo "Build completed successfully!"
+          
+          # Check if output directory exists
+          if [ !  -d "out" ]; then
+            echo "❌ Error: Output directory not found!"
+            exit 1
+          fi
+          
+          # List build artifacts
+          echo ""
+          echo "=== Build Artifacts ==="
+          ls -lh out/
+
+      - name: Get ROM Information
+        id: rom_info
+        if: success()
+        run: |
+          cd out
+          ROM_FILE=$(ls *.zip 2>/dev/null | head -n 1)
+          
+          if [ -z "$ROM_FILE" ]; then
+            echo "❌ No ROM file found!"
+            exit 1
+          fi
+          
+          ROM_SIZE=$(du -h "$ROM_FILE" | cut -f1)
+          ROM_SIZE_MB=$(du -m "$ROM_FILE" | cut -f1)
+          
+          echo "rom_file=$ROM_FILE" >> $GITHUB_OUTPUT
+          echo "rom_size=$ROM_SIZE" >> $GITHUB_OUTPUT
+          echo "rom_size_mb=$ROM_SIZE_MB" >> $GITHUB_OUTPUT
+          
+          echo ""
+          echo "✅ ROM Built Successfully!"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "📦 File: $ROM_FILE"
+          echo "📊 Size: $ROM_SIZE ($ROM_SIZE_MB MB)"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+      # ===============================================
+      # CLOUD UPLOAD (OPTIONAL)
+      # ===============================================
+
+      - name: Install PixelDrain CLI
+        if: inputs.upload_cloud && success()
+        run: |
+          echo "Downloading PixelDrain CLI..."
+          curl -L https://github.com/jkawamoto/go-pixeldrain/releases/download/v0.7.6/pd_0.7.6_linux_amd64.tar. gz -o pd.tar.gz
+          tar -xzf pd.tar.gz
+          chmod +x pd
+          sudo mv pd /usr/local/bin/pd
+          pd --version
+
+      - name: Upload ROM to PixelDrain
+        if: inputs.upload_cloud && success()
+        env:
+          PIXELDRAIN_API_KEY: ${{ secrets.PIXELDRAIN_API_KEY }}
+        run:  |
+          cd out
+          ROM_FILE="${{ steps.rom_info.outputs.rom_file }}"
+          
+          if [ -z "$ROM_FILE" ]; then
+            echo "❌ ROM file not found!"
+            exit 1
+          fi
+          
+          echo "📤 Uploading $ROM_FILE to PixelDrain..."
+          echo ""
+          
+          # Upload and capture output
+          UPLOAD_OUTPUT=$(pd --api-key "$PIXELDRAIN_API_KEY" upload "$ROM_FILE" 2>&1)
+          echo "$UPLOAD_OUTPUT"
+          
+          # Extract and format download URL
+          DOWNLOAD_URL=$(echo "$UPLOAD_OUTPUT" | grep -o 'https://pixeldrain. com/api/file/[^[: space:]]*' | sed 's|api/file|u|g')
+          
+          if [ -n "$DOWNLOAD_URL" ]; then
+            echo ""
+            echo "✅ Upload Successful!"
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo "🔗 Download URL: $DOWNLOAD_URL"
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo "download_url=$DOWNLOAD_URL" >> $GITHUB_OUTPUT
+          else
+            echo "⚠️ Warning: Could not extract download URL"
+          fi
+
+      # ===============================================
+      # ARTIFACTS & SUMMARY
+      # ===============================================
+
+      - name: Upload Build Artifacts
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: AstroROM-${{ env.DEVICE }}-${{ github.run_number }}
+          path: out/*. zip
+          retention-days: 7
+          compression-level: 0
+
+      - name: Generate Build Summary
+        if: always()
+        run: |
+          cat >> $GITHUB_STEP_SUMMARY << EOF
+          # 🚀 AstroROM Build Summary
+          
+          ## Build Information
+          | Parameter | Value |
+          |-----------|-------|
+          | 🤖 Device | \`${{ env.DEVICE }}\` |
+          | 🔧 Build Type | \`${{ env.BUILD_TYPE }}\` |
+          | 👤 Triggered By | @${{ github.actor }} |
+          | ⏱️ Build Time | $(date -u '+%Y-%m-%d %H:%M:%S UTC') |
+          | 🔢 Run Number | #${{ github.run_number }} |
+          
+          ## Build Status
+          ${{ job.status == 'success' && '✅ **Build Successful! **' || '❌ **Build Failed! **' }}
+          
+          EOF
+          
+          if [ "${{ job.status }}" == "success" ]; then
+            cat >> $GITHUB_STEP_SUMMARY << EOF
+          ## 📦 ROM Details
+          | Property | Value |
+          |----------|-------|
+          | 📁 File Name | \`${{ steps.rom_info.outputs.rom_file }}\` |
+          | 📊 File Size | ${{ steps.rom_info.outputs.rom_size }} |
+          
+          EOF
+          
+            if [ "${{ inputs.upload_cloud }}" == "true" ]; then
+              cat >> $GITHUB_STEP_SUMMARY << EOF
+          ## ☁️ Cloud Upload
+          ROM uploaded to PixelDrain successfully!
+          
+          EOF
+            fi
+            
+            cat >> $GITHUB_STEP_SUMMARY << EOF
+          ## 📥 Download
+          The ROM is available as a workflow artifact.  Click on "Artifacts" at the top of this page to download.
+          
+          ---
+          *Build completed successfully!  🎉*
+          EOF
+          else
+            cat >> $GITHUB_STEP_SUMMARY << EOF
+          
+          Please check the logs above for error details.
+          EOF
+          fi
+
+      - name: Disk Space Final Check
+        if: always()
+        run: |
+          echo "=== Final Disk Space ==="
+          df -h /
