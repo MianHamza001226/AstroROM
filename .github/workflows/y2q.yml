@@ -1,157 +1,82 @@
+
 name: Build AstroROM
 
 on:
-  workflow_dispatch: 
+  workflow_dispatch:
     inputs:
-      device: 
-        description: 'Device Codename (e.g., dm3q, y2q)'
+      device:
+        description: 'Device Codename'
         required: true
-        default: 'y2q'
-        type: string
+        default: 'dm3q'
       upload_cloud:
         description: 'Upload ROM to cloud (PixelDrain)'
         required: false
-        default:  false
+        default: 'false'
         type: boolean
-      build_type:
-        description: 'Build Type'
-        required: false
-        default: 'userdebug'
-        type:  choice
-        options:
-          - user
-          - userdebug
-          - eng
-
-env:
-  DEVICE: ${{ inputs.device }}
-  BUILD_TYPE: ${{ inputs.build_type }}
 
 jobs:
   build:
     runs-on: ubuntu-24.04
-    timeout-minutes: 480
 
     steps:
       - name: Checkout Repository
-        uses:  actions/checkout@v4
-        with:
-          fetch-depth: 1
+        uses: actions/checkout@v4
 
-      # ===============================================
-      # DISK SPACE OPTIMIZATION
-      # ===============================================
-      
-      - name: Free Disk Space (Step 1/4) - Remove System Packages
+      - name: Free disk space (1/4) - System Junk
         run: |
-          echo "=== Before Cleanup ==="
-          df -h /
-          echo ""
-          echo "Removing unnecessary packages..."
-          sudo rm -rf /usr/share/dotnet
-          sudo rm -rf /usr/local/lib/android
-          sudo rm -rf /opt/ghc
-          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          sudo docker image prune --all --force
+          sudo docker builder prune -a
+
+      - name: Free disk space (2/4) - Tool Cache
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: true
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          swap-storage: false
+
+      - name: Free disk space (3/4)
+        uses: rokibhasansagar/slimhub_actions@main
+        with:
+          retain: 'compiler_cmake'
+
+      - name: Free disk space (4/4)
+        run: |
           sudo rm -rf /usr/local/share/boost
           sudo rm -rf /usr/share/swift
           sudo rm -rf /usr/local/lib/node_modules
           sudo rm -rf /usr/local/share/chromium
           sudo rm -rf /usr/share/sbt
-          sudo docker image prune --all --force
-          sudo docker builder prune -af
-
-      - name: Free Disk Space (Step 2/4) - Tool Cache Cleanup
-        uses: jlumbroso/free-disk-space@main
-        with:
-          tool-cache:  true
-          android: true
-          dotnet: true
-          haskell: true
-          large-packages: true
-          swap-storage:  false
-
-      - name: Free Disk Space (Step 3/4) - SlimHub Actions
-        uses: rokibhasansagar/slimhub_actions@main
-        with:
-          retain: 'compiler_cmake'
-
-      - name:  Free Disk Space (Step 4/4) - Final Cleanup
-        run: |
-          sudo apt-get autoremove -y
-          sudo apt-get autoclean -y
           sudo apt-get clean
-          echo ""
-          echo "=== After Cleanup ==="
-          df -h /
 
-      # ===============================================
-      # BUILD PROCESS
-      # ===============================================
+      - name: Disk Space Check
+        run: df -h /
 
-      - name: Display Build Information
+      - name: Run AstroROM Build
         run: |
-          echo "╔══════════════════════════════════════╗"
-          echo "║       AstroROM Build Starting        ║"
-          echo "╚═════════════════════════════════��════╝"
-          echo ""
-          echo "Device:       ${{ env.DEVICE }}"
-          echo "Build Type:  ${{ env.BUILD_TYPE }}"
-          echo "Upload:       ${{ inputs.upload_cloud }}"
-          echo "Runner:      ubuntu-24.04"
-          echo "Triggered by: @${{ github.actor }}"
-          echo ""
-          echo "=== System Information ==="
-          uname -a
-          echo ""
-          echo "=== Available Disk Space ==="
-          df -h /
-          echo ""
-          echo "=== CPU Information ==="
-          lscpu | grep -E "^CPU\(s\)|Model name|Thread|Core"
+          sudo bash build.sh --build ${{ inputs.device }}
 
-      - name: Build AstroROM
-        id: build
+
+      - name: Download PixelDrain CLI (pd)
+        if: ${{ inputs.upload_cloud }}
         run: |
-          echo "Starting build process..."
-          sudo bash build.sh --build ${{ env.DEVICE }}
-          
-          echo "Build completed successfully!"
-          
-          # Check if output directory exists
-          if [ !  -d "out" ]; then
-            echo "❌ Error: Output directory not found!"
-            exit 1
-          fi
-          
-          # List build artifacts
-          echo ""
-          echo "=== Build Artifacts ==="
-          ls -lh out/
+          curl -L https://github.com/jkawamoto/go-pixeldrain/releases/download/v0.7.6/pd_0.7.6_linux_amd64.tar.gz -o pd.tar.gz
+          tar -xvf pd.tar.gz
+          chmod +x pd
+          sudo mv pd /usr/local/bin/pd
 
-      - name: Get ROM Information
-        id: rom_info
-        if: success()
+      - name: Upload ROM to PixelDrain
+        if: ${{ inputs.upload_cloud }}
         run: |
           cd out
-          ROM_FILE=$(ls *.zip 2>/dev/null | head -n 1)
-          
+          ROM_FILE=$(ls *.zip | head -n 1)
+
           if [ -z "$ROM_FILE" ]; then
-            echo "❌ No ROM file found!"
             exit 1
           fi
-          
-          ROM_SIZE=$(du -h "$ROM_FILE" | cut -f1)
-          ROM_SIZE_MB=$(du -m "$ROM_FILE" | cut -f1)
-          
-          echo "rom_file=$ROM_FILE" >> $GITHUB_OUTPUT
-          echo "rom_size=$ROM_SIZE" >> $GITHUB_OUTPUT
-          echo "rom_size_mb=$ROM_SIZE_MB" >> $GITHUB_OUTPUT
-          
-          echo ""
-          echo "✅ ROM Built Successfully!"
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          echo "📦 File: $ROM_FILE"
-          echo "📊 Size: $ROM_SIZE ($ROM_SIZE_MB MB)"
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
-  
+          echo "Uploading $ROM_FILE to PixelDrain..."
+          pd --api-key d3b5aa82-458e-423f-a3c8-487fa7ab63f0 upload "$ROM_FILE" | sed 's|api/file|u|g'
