@@ -1,5 +1,5 @@
 # Device props
-MODEL_NAME="Galaxy S20 5G"
+MODEL_NAME="Galaxy S20+ 5G"
 CODENAME="y2q"
 SIOP_POLICY_NAME=siop_y2q_sm8250
 VNDK="30"
